@@ -2,131 +2,169 @@ const rp = require('request-promise')
 const crypto = require('crypto')
 const BASE_TIMEOUT = 15000
 
-function passThrough (d) { return d }
+function passThrough(d) {
+    return d
+}
 
 class Rest2 {
-  constructor (key, secret, opts = {}) {
-    this.url = 'https://api.bitfinex.com/'
-    this.version = 'v2'
-    this.key = key
-    this.secret = secret
-    this.nonce = new Date().getTime()
-    this.generateNonce = (typeof opts.nonceGenerator === 'function')
-      ? opts.nonceGenerator
-      : function () {
-        // noinspection JSPotentiallyInvalidUsageOfThis
-        return ++this.nonce
-      }
+    constructor(key, secret, opts = {}) {
+        this.url = 'https://api.bitfinex.com/'
+        this.version = 'v2'
+        this.key = key
+        this.secret = secret
+        this.nonce = new Date().getTime()
+        this.generateNonce = (typeof opts.nonceGenerator === 'function') ?
+            opts.nonceGenerator :
+            function() {
+                // noinspection JSPotentiallyInvalidUsageOfThis
+                return ++this.nonce
+            }
 
-    this.transformer = opts.transformer || passThrough
-  }
-
-  genericCallback (err, result) {
-    console.log(err, result)
-  }
-
-  makeAuthRequest (path, payload = {}, cb = this.genericCallback) {
-    if (!this.key || !this.secret) {
-      return cb(new Error('missing api key or secret'))
-    }
-    const url = `${this.url}/${this.version}/${path}`
-    const nonce = JSON.stringify(this.generateNonce())
-    const rawBody = JSON.stringify(payload)
-
-    const signature = crypto
-      .createHmac('sha384', this.secret)
-      .update(`/api/${url}${nonce}${rawBody}`)
-      .digest('hex')
-
-    return rp({
-      url,
-      method: 'POST',
-      headers: {
-        'bfx-nonce': nonce,
-        'bfx-apikey': this.key,
-        'bfx-signature': signature
-      },
-      json: payload
-    })
-    .then((response) => cb(null, JSON.parse(response)))
-    .catch((error) => cb(new Error(error)))
-  }
-
-  makePublicRequest (name, cb = this.genericCallback.bind(this)) {
-    const url = `${this.url}/${this.version}/${name}`
-    return rp({
-      url,
-      method: 'GET',
-      timeout: BASE_TIMEOUT,
-      json: true
-    })
-    .then((response) => {
-      this.transform(response, name, cb)
-    })
-    .catch((error) => cb(new Error(error)))
-  }
-
-  transform (result, name, cb) {
-    let n = {}
-
-    if (this.transformer.normalize) {
-      n = this.transformer.normalize(name)
+        this.transformer = opts.transformer || passThrough
     }
 
-    result = this.transformer(result, n.type, n.symbol)
-    cb(null, result)
-  }
+    genericCallback(err, result) {
+        console.log(err, result)
+    }
 
-  // Public endpoints
+    makeAuthRequest(path, payload = {}, cb = this.genericCallback) {
+        if (!this.key || !this.secret) {
+            return cb(new Error('missing api key or secret'))
+        }
+        const url = `${this.url}/${this.version}/${path}`
+        const nonce = JSON.stringify(this.generateNonce())
+        const rawBody = JSON.stringify(payload)
 
-  ticker (symbol = 'tBTCUSD', cb) {
-    return this.makePublicRequest(`ticker/${symbol}`, cb)
-  }
+        const signature = crypto
+            .createHmac('sha384', this.secret)
+            .update(`/api/${url}${nonce}${rawBody}`)
+            .digest('hex')
 
-  tickers (cb) {
-    return this.makePublicRequest(`tickers`, cb)
-  }
+        return rp({
+                url,
+                method: 'POST',
+                headers: {
+                    'bfx-nonce': nonce,
+                    'bfx-apikey': this.key,
+                    'bfx-signature': signature
+                },
+                json: payload
+            })
+            .then((response) => cb(null, JSON.parse(response)))
+            .catch((error) => cb(new Error(error)))
+    }
 
-  stats (key = 'pos.size:1m:tBTCUSD:long', context = 'hist', cb) {
-    return this.makePublicRequest(`stats1/${key}/${context}`, cb)
-  }
+    makePublicRequest(name, cb = this.genericCallback.bind(this), qs) {
+        const url = `${this.url}/${this.version}/${name}`
+        return rp({
+                url,
+                method: 'GET',
+                timeout: BASE_TIMEOUT,
+                json: true,
+                qs: qs
+            })
+            .then((response) => {
+                this.transform(response, name, cb)
+            })
+            .catch((error) => {
+                throw error
+            })
+    }
 
-  // timeframes: '1m', '5m', '15m', '30m', '1h', '3h', '6h', '12h', '1D', '7D', '14D', '1M'
-  // sections: 'last', 'hist'
-  // note: query params can be added: see
-  // http://docs.bitfinex.com/v2/reference#rest-public-candles
-  candles ({timeframe = '1m', symbol = 'tBTCUSD', section = 'hist'}, cb) {
-    return this.makePublicRequest(`stats1/trade:${timeframe}:${symbol}/${section}`, cb)
-  }
+    transform(result, name, cb) {
+        let n = {}
 
-  // TODO
-  // - Trades
-  // - Books
+        if (this.transformer.normalize) {
+            n = this.transformer.normalize(name)
+        }
 
-  // Auth endpoints
+        result = this.transformer(result, n.type, n.symbol)
+        cb(null, result)
+    }
 
-  alertList (type = 'price', cb) {
-    return this.makeAuthRequest(`/auth/r/alerts?type=${type}`, null, cb)
-  }
+    // Public endpoints
 
-  alertSet (type = 'price', symbol = 'tBTCUSD', price = 0) {
-    return this.makeAuthRequest(`/auth/w/alert/set`, {type, symbol, price})
-  }
+    ticker(symbol = 'tBTCUSD', cb) {
+        return this.makePublicRequest(`ticker/${symbol}`, cb)
+    }
 
-  alertDelete (symbol = 'tBTCUSD', price = 0) {
-    return this.makeAuthRequest(`/auth/w/alert/set`, {symbol, price})
-  }
+    tickers(cb) {
+        return this.makePublicRequest(`tickers`, cb)
+    }
 
-  // TODO
-  // - Wallets
-  // - Orders
-  // - Order Trades
-  // - Positions
-  // - Offers
-  // - Margin Info
-  // - Funding Info
-  // - Performance
-  // - Calc Available Balance
+    stats(key = 'pos.size:1m:tBTCUSD:long', context = 'hist', cb) {
+        return this.makePublicRequest(`stats1/${key}/${context}`, cb)
+    }
+
+    // timeframes: '1m', '5m', '15m', '30m', '1h', '3h', '6h', '12h', '1D', '7D', '14D', '1M'
+    // sections: 'last', 'hist'
+    // note: query params can be added: see
+    // http://docs.bitfinex.com/v2/reference#rest-public-candles
+    candles({
+        timeframe = '1m',
+        symbol = 'tBTCUSD',
+        section = 'hist',
+        limit = 100,
+        start = 0,
+        end = 0
+    }, cb) {
+        return this.makePublicRequest(`candles/trade:${timeframe}:${symbol}/${section}`, cb, {
+            limit: limit,
+            start: start,
+            end: end,
+            sort: -1
+        })
+    }
+
+    // TODO
+    // - Trades
+    // - Books
+
+    trades({
+        symbol = 'tBTCUSD',
+        limit = 120,
+        start = 0,
+        end = 0
+    }, cb) {
+        return this.makePublicRequest(`trades/${symbol}/hist`, cb, {
+            limit: limit,
+            start: start,
+            end: end,
+            sort: -1
+        })
+    }
+
+    // Auth endpoints
+
+    alertList(type = 'price', cb) {
+        return this.makeAuthRequest(`/auth/r/alerts?type=${type}`, null, cb)
+    }
+
+    alertSet(type = 'price', symbol = 'tBTCUSD', price = 0) {
+        return this.makeAuthRequest(`/auth/w/alert/set`, {
+            type,
+            symbol,
+            price
+        })
+    }
+
+    alertDelete(symbol = 'tBTCUSD', price = 0) {
+        return this.makeAuthRequest(`/auth/w/alert/set`, {
+            symbol,
+            price
+        })
+    }
+
+    // TODO
+    // - Wallets
+    // - Orders
+    // - Order Trades
+    // - Positions
+    // - Offers
+    // - Margin Info
+    // - Funding Info
+    // - Performance
+    // - Calc Available Balance
 }
 
 module.exports = Rest2
